@@ -1,5 +1,14 @@
 import { motion } from 'framer-motion';
 import { useEffect, useState } from 'react';
+import {
+  generateSecureOrderId,
+  validatePaymentAmount,
+  maskSensitiveData,
+  escapeHtml,
+  getEnvVar,
+  isProduction
+} from '../utils/security';
+import { fadeInUp, getViewport } from '../utils/animations';
 
 // Window 인터페이스 확장
 declare global {
@@ -13,11 +22,16 @@ export default function Section5_7() {
 
   // SDK 로딩 상태 확인
   useEffect(() => {
-    console.log('🔍 SDK 로딩 체크 시작');
+    // 프로덕션에서는 로깅 최소화
+    if (!isProduction()) {
+      console.log('🔍 SDK 로딩 체크 시작');
+    }
 
     // 즉시 체크
     if (window.PaypleCpayAuthCheck) {
-      console.log('✅ SDK 이미 로드됨');
+      if (!isProduction()) {
+        console.log('✅ SDK 이미 로드됨');
+      }
       setSdkLoaded(true);
       return;
     }
@@ -28,10 +42,11 @@ export default function Section5_7() {
 
     const checkSDK = setInterval(() => {
       attempts++;
-      console.log(`🔄 SDK 로딩 체크 시도 ${attempts}/${maxAttempts}`);
 
       if (window.PaypleCpayAuthCheck) {
-        console.log('✅ SDK 로드 완료!');
+        if (!isProduction()) {
+          console.log('✅ SDK 로드 완료!');
+        }
         setSdkLoaded(true);
         clearInterval(checkSDK);
       } else if (attempts >= maxAttempts) {
@@ -43,57 +58,68 @@ export default function Section5_7() {
     return () => clearInterval(checkSDK);
   }, []);
 
-  // 주문번호 생성 함수
-  const createOrderId = () => {
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = String(now.getMonth() + 1).padStart(2, '0');
-    const day = String(now.getDate()).padStart(2, '0');
-    const timestamp = now.getTime();
-    return `ORDER${year}${month}${day}${timestamp}`;
-  };
-
   // 결제 결과 콜백 함수
   const getPaymentResult = (result: any) => {
-    console.log('결제 결과:', result);
+    // 프로덕션에서는 민감한 정보 마스킹
+    if (!isProduction()) {
+      console.log('결제 결과:', maskSensitiveData(result));
+    }
 
     if (result.PCD_PAY_RST === 'success') {
-      // 결제 성공
-      alert(`결제가 완료되었습니다!\n\n주문번호: ${result.PCD_PAY_OID}\n금액: ${Number(result.PCD_PAY_TOTAL).toLocaleString()}원`);
+      // XSS 방지를 위한 데이터 이스케이프
+      const orderId = escapeHtml(result.PCD_PAY_OID || '');
+      const amount = Number(result.PCD_PAY_TOTAL);
 
-      // 실제 구현시에는 여기서 서버로 결제 승인 요청을 보내야 합니다
-      console.log('결제 완료 데이터:', result);
+      // 금액 검증
+      if (!validatePaymentAmount(amount)) {
+        alert('결제 금액이 유효하지 않습니다.');
+        return;
+      }
+
+      // 결제 성공
+      alert(`결제가 완료되었습니다!\n\n주문번호: ${orderId}\n금액: ${amount.toLocaleString()}원`);
+
+      // TODO: 서버로 결제 검증 요청 필수
+      // fetch('/api/verify-payment', {
+      //   method: 'POST',
+      //   headers: { 'Content-Type': 'application/json' },
+      //   body: JSON.stringify({ orderId, amount, paymentData: result })
+      // });
     } else {
-      // 결제 취소/실패 - 별도 알림 없이 콘솔에만 로그
-      console.log('결제 취소/실패:', result.PCD_PAY_MSG || '사용자 취소');
+      // 결제 취소/실패 - 사용자 메시지만 로깅
+      if (!isProduction()) {
+        console.log('결제 취소/실패:', result.PCD_PAY_MSG || '사용자 취소');
+      }
     }
   };
 
   // 페이플 결제 요청 함수
   const handlePayment = (amount: number, productName: string) => {
-    console.log(`💳 결제 요청: ${productName} - ${amount}원`);
-    console.log(`📊 SDK 로딩 상태: ${sdkLoaded}`);
-    console.log(`🔍 window.PaypleCpayAuthCheck 존재: ${!!window.PaypleCpayAuthCheck}`);
+    // 금액 검증
+    if (!validatePaymentAmount(amount)) {
+      alert('결제 금액이 유효하지 않습니다.');
+      return;
+    }
 
     // 페이플 SDK가 로드되었는지 확인
     if (!window.PaypleCpayAuthCheck) {
       console.error('❌ SDK가 로드되지 않았습니다!');
-      alert('결제 시스템을 불러오는 중입니다. 잠시 후 다시 시도해주세요.\n\n브라우저 콘솔(F12)에서 오류를 확인해주세요.');
+      alert('결제 시스템을 불러오는 중입니다. 잠시 후 다시 시도해주세요.');
       return;
     }
 
-    console.log('✅ SDK 로드 확인 완료, 결제 진행');
+    // 안전한 주문번호 생성 (난수 포함)
+    const orderId = generateSecureOrderId();
 
-    // 주문번호 생성
-    const orderId = createOrderId();
-    console.log(`📝 주문번호 생성: ${orderId}`);
+    // 환경변수에서 클라이언트 키 가져오기 (없으면 테스트 키)
+    const clientKey = getEnvVar('VITE_PAYPLE_CLIENT_KEY', 'test_DF55F29DA654A8CBC0F0A9DD4B556486');
 
-    // 결제 파라미터 설정 (테스트 환경)
+    // 결제 파라미터 설정
     const paymentParams = {
-      // 파트너 인증 - 클라이언트 키 (테스트)
-      clientKey: 'test_DF55F29DA654A8CBC0F0A9DD4B556486',
+      // 파트너 인증 - 클라이언트 키 (환경변수)
+      clientKey,
 
-      // 결제창 방식 (POPUP)
+      // 결제창 방식
       PCD_PAY_TYPE: 'card',           // 결제 방법
       PCD_PAY_WORK: 'PAY',            // PAY: 본인인증+계좌등록+결제완료
       PCD_CARD_VER: '02',             // 02: 앱카드 일반결제
@@ -117,15 +143,15 @@ export default function Section5_7() {
       callbackFunction: getPaymentResult
     };
 
-    // 페이플 결제창 호출
-    console.log('🚀 결제 요청 파라미터:', paymentParams);
-    console.log('🎯 PaypleCpayAuthCheck 함수 호출 중...');
+    // 개발 환경에서만 마스킹된 파라미터 로깅
+    if (!isProduction()) {
+      console.log('🚀 결제 요청:', maskSensitiveData(paymentParams));
+    }
 
     try {
       window.PaypleCpayAuthCheck(paymentParams);
-      console.log('✅ PaypleCpayAuthCheck 함수 호출 완료');
     } catch (error) {
-      console.error('❌ PaypleCpayAuthCheck 함수 호출 중 오류:', error);
+      console.error('❌ 결제 요청 중 오류:', error);
       alert('결제 요청 중 오류가 발생했습니다. 다시 시도해주세요.');
     }
   };
@@ -135,10 +161,10 @@ export default function Section5_7() {
       <div className="relative z-10 max-w-5xl mx-auto px-4 md:px-6">
         {/* 섹션 제목 */}
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
-          transition={{ duration: 0.6 }}
+          initial="hidden"
+          whileInView="visible"
+          viewport={getViewport()}
+          variants={fadeInUp}
           className="text-center mb-12 md:mb-16"
         >
           <h2
@@ -161,10 +187,10 @@ export default function Section5_7() {
         <div className="grid md:grid-cols-2 gap-6 md:gap-8 mb-12 md:mb-16">
           {/* 메인 패키지 */}
           <motion.div
-            initial={{ opacity: 0, y: 30 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            transition={{ duration: 0.6, delay: 0.2 }}
+            initial="hidden"
+            whileInView="visible"
+            viewport={getViewport()}
+            variants={fadeInUp}
             className="bg-white border-2 border-primary rounded-2xl p-8 shadow-xl relative"
           >
             {/* 베스트 뱃지 */}
@@ -222,10 +248,10 @@ export default function Section5_7() {
 
           {/* 그룹 코칭 옵션 */}
           <motion.div
-            initial={{ opacity: 0, y: 30 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            transition={{ duration: 0.6, delay: 0.3 }}
+            initial="hidden"
+            whileInView="visible"
+            viewport={getViewport()}
+            variants={fadeInUp}
             className="bg-white border-2 border-neutral-gray-200 rounded-2xl p-8 shadow-lg flex flex-col"
           >
             {/* 옵션 뱃지 */}
@@ -278,10 +304,10 @@ export default function Section5_7() {
         {/* 긴박감 포인트들 */}
         <div className="grid md:grid-cols-3 gap-6 md:gap-8">
           <motion.div
-            initial={{ opacity: 0, y: 30 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            transition={{ duration: 0.6, delay: 0.1 }}
+            initial="hidden"
+            whileInView="visible"
+            viewport={getViewport()}
+            variants={fadeInUp}
             className="bg-white rounded-2xl p-6 sm:p-8 shadow-lg"
           >
             {/* 번호 뱃지 */}
@@ -306,10 +332,10 @@ export default function Section5_7() {
           </motion.div>
 
           <motion.div
-            initial={{ opacity: 0, y: 30 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            transition={{ duration: 0.6, delay: 0.2 }}
+            initial="hidden"
+            whileInView="visible"
+            viewport={getViewport()}
+            variants={fadeInUp}
             className="bg-white rounded-2xl p-6 sm:p-8 shadow-lg"
           >
             {/* 번호 뱃지 */}
@@ -334,10 +360,10 @@ export default function Section5_7() {
           </motion.div>
 
           <motion.div
-            initial={{ opacity: 0, y: 30 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            transition={{ duration: 0.6, delay: 0.3 }}
+            initial="hidden"
+            whileInView="visible"
+            viewport={getViewport()}
+            variants={fadeInUp}
             className="bg-white rounded-2xl p-6 sm:p-8 shadow-lg"
           >
             {/* 번호 뱃지 */}
