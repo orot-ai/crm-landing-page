@@ -1,22 +1,48 @@
 import { useState } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
 
 export default function Header() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  const handleLogoClick = () => {
+    if (location.pathname === '/') {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    } else {
+      navigate('/');
+    }
+  };
 
   const scrollToSection = (sectionId: string) => {
-    const element = document.getElementById(sectionId);
-    if (element) {
-      const headerHeight = 80; // 헤더 높이
-      const elementPosition = element.getBoundingClientRect().top;
-      const offsetPosition = elementPosition + window.pageYOffset - headerHeight;
-
-      window.scrollTo({
-        top: offsetPosition,
-        behavior: 'smooth'
-      });
-      setIsMenuOpen(false);
+    if (location.pathname !== '/') {
+      navigate('/');
+      setTimeout(() => {
+        const element = document.getElementById(sectionId);
+        if (element) {
+          const headerHeight = 80;
+          const elementPosition = element.getBoundingClientRect().top;
+          const offsetPosition = elementPosition + window.pageYOffset - headerHeight;
+          window.scrollTo({
+            top: offsetPosition,
+            behavior: 'smooth'
+          });
+        }
+      }, 100);
+    } else {
+      const element = document.getElementById(sectionId);
+      if (element) {
+        const headerHeight = 80;
+        const elementPosition = element.getBoundingClientRect().top;
+        const offsetPosition = elementPosition + window.pageYOffset - headerHeight;
+        window.scrollTo({
+          top: offsetPosition,
+          behavior: 'smooth'
+        });
+      }
     }
+    setIsMenuOpen(false);
   };
 
   return (
@@ -26,13 +52,13 @@ export default function Header() {
           {/* 로고 */}
           <div className="flex items-center">
             <h1
-              className="text-xl md:text-2xl font-bold text-neutral-black cursor-pointer"
+              className="text-xl md:text-2xl font-bold text-neutral-black cursor-pointer hover:text-primary transition-colors"
               style={{
                 fontFamily: "'Noto Sans KR', sans-serif",
                 fontWeight: 700,
                 letterSpacing: '-0.02em'
               }}
-              onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+              onClick={handleLogoClick}
             >
               Make Your CRM
             </h1>

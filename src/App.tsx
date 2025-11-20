@@ -1,3 +1,4 @@
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import Header from './components/Header';
 import Hero from './components/Hero';
 import Section1 from './components/Section1';
@@ -14,11 +15,12 @@ import FAQ from './components/FAQ';
 import Contact from './components/Contact';
 import Footer from './components/Footer';
 import ScrollToTop from './components/ScrollToTop';
+import TermsOfService from './pages/TermsOfService';
+import PrivacyPolicy from './pages/PrivacyPolicy';
 
-function App() {
+function MainPage() {
   return (
-    <div className="min-h-screen">
-      <Header />
+    <>
       <Hero />
       <Section1 />
       <Section2 />
@@ -42,9 +44,24 @@ function App() {
       <div id="contact">
         <Contact />
       </div>
-      <Footer />
-      <ScrollToTop />
-    </div>
+    </>
+  );
+}
+
+function App() {
+  return (
+    <Router>
+      <div className="min-h-screen">
+        <Header />
+        <Routes>
+          <Route path="/" element={<MainPage />} />
+          <Route path="/terms" element={<TermsOfService />} />
+          <Route path="/privacy" element={<PrivacyPolicy />} />
+        </Routes>
+        <Footer />
+        <ScrollToTop />
+      </div>
+    </Router>
   );
 }
 
